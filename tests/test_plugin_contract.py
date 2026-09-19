@@ -156,6 +156,45 @@ async def test_provider_maps_explicit_host_auth_mode(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.asyncio
+async def test_provider_rejects_unauthenticated_host_mode() -> None:
+    plugin = AnthropicProviderPlugin()
+
+    with pytest.raises(ProviderRequestError, match="auth_type=none"):
+        await plugin._get_client(
+            {
+                "base_url": "https://third-party.example/anthropic",
+                "auth_type": "none",
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_provider_rejects_non_http_base_url() -> None:
+    plugin = AnthropicProviderPlugin()
+
+    with pytest.raises(ProviderRequestError, match="只支持 http:// 或 https://"):
+        await plugin._get_client(
+            {
+                "api_key": "redacted",
+                "base_url": "file:///tmp/anthropic",
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_provider_rejects_credentials_in_base_url() -> None:
+    plugin = AnthropicProviderPlugin()
+
+    with pytest.raises(ProviderRequestError, match="不应包含 URL 用户名或密码"):
+        await plugin._get_client(
+            {
+                "api_key": "redacted",
+                "base_url": "https://user:password@third-party.example/anthropic",
+            }
+        )
+
+
+@pytest.mark.asyncio
 async def test_provider_normalizes_deepseek_root_url(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_anthropic = ModuleType("anthropic")
     monkeypatch.setitem(sys.modules, "anthropic", fake_anthropic)

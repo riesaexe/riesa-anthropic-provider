@@ -33,6 +33,8 @@ MaiBot 当前的内置模型接入主要使用 Responses 等 Host 支持的客�
 
 > **重要：基础 URL 必须对应 Anthropic 格式。** 选择 `anthropic_messages (riesa.anthropic-provider)` 时，DeepSeek 官方 API 请填写 `https://api.deepseek.com/anthropic`。`https://api.deepseek.com` 是 OpenAI/Responses 格式的根地址，不能直接作为 Anthropic Provider 的地址。插件遇到官方根地址时会自动补上 `/anthropic`，但建议从配置开始就填写完整地址；如果填写了官方的 `/v1` 等非 Anthropic 路径，插件会直接报出修正提示。第三方服务则请填写该服务文档提供的 Anthropic 兼容入口，插件不会擅自给第三方地址追加路径。
 
+> **安全边界：`base_url` 是高权限配置。** 任何能够修改 MaiBot Host Provider 配置的人，都可以决定 API Key 和完整上下文发送到哪里。插件只接受 `http://` 或 `https://`，但为了保留本地部署和第三方兼容 endpoint 的灵活性，不会把 `localhost`、局域网地址或云元数据地址自动当成安全地址拦截。请只使用自己信任的服务地址；远程服务优先使用 HTTPS，并确认该服务会如何处理 API Key、上下文和搜索内容。插件不提供 SSRF 隔离能力。
+
 ## 安装
 
 正常安装插件本身即可，不需要修改 MaiBot 主程序，也不需要重新安装或修改 `maibot-dashboard`。插件管理器会按清单安装依赖；MaiBot Runner 会根据 `config_models.py` 自动生成插件配置，通常不需要手动复制 `config.example.toml`。
@@ -105,6 +107,8 @@ tenant = "<租户标识>"
 
 Anthropic SDK 会使用 `api_key` 发送 Anthropic 约定的认证头。`auth_type = "header"` 时，插件会按 `auth_header_name` 和 `auth_header_prefix` 自动把同一个 `api_key` 转成请求头；`auth_type = "query"` 时会按 `auth_query_name` 放入查询参数。第三方若有额外鉴权字段，再补充 `default_headers` 或 `default_query`。
 
+MaiBot 允许 Provider 使用 `auth_type = "none"` 表示无鉴权端点，但本插件当前要求 Anthropic 兼容服务使用 API Key，因此会明确拒绝 `auth_type = "none"`，不会把空密钥请求发送出去。请使用 `bearer`、`header` 或 `query` 并配置 API Key。
+
 ## 搜索行为
 
 - 使用官方 DeepSeek 地址正常添加 `anthropic_messages` 模型时，插件默认会把原生 `web_search` 工具加入请求，不需要在 WebUI 中额外开启联网搜索开关。第三方 Anthropic 服务默认不注入该工具，确认兼容后可在模型额外参数中显式开启。
@@ -129,6 +133,8 @@ Anthropic SDK 会使用 `api_key` 发送 Anthropic 约定的认证头。`auth_ty
 ## 安全与配置边界
 
 插件不会修改 MaiBot 主程序。它只接收 Host 在调用时传入的 Provider 配置快照，并在进程内缓存对应的 Anthropic 客户端。插件配置文件只控制 Provider 是否启用、联网搜索策略和搜索来源日志，不保存 API Key。
+
+运行时会拒绝没有 `http/https` scheme、没有主机名或包含 URL 用户名/密码的 `base_url`。除此之外，插件不会判断地址是否为公网、内网、`localhost` 或云元数据地址，因为这些地址可能是用户明确配置的本地代理或第三方兼容服务。请把 Provider 配置权限视为敏感权限：请求会携带 Host Provider 中的 API Key，以及 MaiBot 发给模型的完整上下文；非官方 endpoint 的可信性和数据处理责任由部署者确认。
 
 不要把 `config.toml`、API Key、完整运行日志或包含上下文的请求体提交到 GitHub。
 

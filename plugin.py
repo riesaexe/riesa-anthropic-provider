@@ -16,6 +16,31 @@ _DEEPSEEK_API_HOST = "api.deepseek.com"
 _DEEPSEEK_ANTHROPIC_PATH = "/anthropic"
 
 
+def _validate_base_url(base_url: str) -> None:
+    try:
+        parsed = urlsplit(base_url)
+        scheme = parsed.scheme.lower()
+        hostname = parsed.hostname
+        username = parsed.username
+        password = parsed.password
+        _port = parsed.port
+    except ValueError as exc:
+        raise ProviderRequestError("api_provider.base_url 不是有效的 URL") from exc
+
+    if scheme not in {"http", "https"}:
+        raise ProviderRequestError(
+            "api_provider.base_url 只支持 http:// 或 https://；"
+            "请确认请求目标是可信的 Anthropic 兼容 endpoint"
+        )
+    if not hostname:
+        raise ProviderRequestError("api_provider.base_url 必须包含有效的主机名")
+    if username or password:
+        raise ProviderRequestError(
+            "api_provider.base_url 不应包含 URL 用户名或密码；"
+            "请改用 Host Provider 的 api_key、请求头或查询参数配置鉴权"
+        )
+
+
 def _normalize_base_url(base_url: str) -> tuple[str, bool]:
     parsed = urlsplit(base_url)
     if parsed.hostname and parsed.hostname.lower() == _DEEPSEEK_API_HOST:
@@ -79,7 +104,7 @@ class AnthropicProviderPlugin(MaiBotPlugin):
         CLIENT_TYPE,
         name="Anthropic Messages Provider",
         description="调用 Anthropic Messages 兼容接口，并可启用 DeepSeek 原生联网搜索。",
-        version="0.1.2",
+        version="0.1.3",
     )
     async def handle_provider(self, *, operation: str, request: dict[str, Any]) -> dict[str, Any]:
         if operation != "response":
@@ -107,12 +132,25 @@ class AnthropicProviderPlugin(MaiBotPlugin):
         return cast(AnthropicProviderConfig, self.config).plugin
 
     async def _get_client(self, provider: Mapping[str, Any]) -> Any:
+        auth_type = str(provider.get("auth_type") or "bearer").strip().lower()
+        if auth_type == "none":
+            raise ProviderRequestError(
+                "Anthropic Provider 当前不支持 auth_type=none 的无鉴权 endpoint；"
+                "请使用 bearer、header 或 query，并在 MaiBot Provider 中配置 API Key"
+            )
+        if auth_type not in {"bearer", "header", "query"}:
+            raise ProviderRequestError(
+                f"不支持的 api_provider.auth_type: {auth_type}；"
+                "可选值为 bearer、header、query"
+            )
+
         api_key = str(provider.get("api_key") or "").strip()
         base_url = str(provider.get("base_url") or "").strip()
         if not api_key:
             raise ProviderRequestError("api_provider.api_key 不能为空；请复用 MaiBot 已配置的 Provider 密钥")
         if not base_url:
             raise ProviderRequestError("api_provider.base_url 不能为空")
+        _validate_base_url(base_url)
         base_url, was_corrected = _normalize_base_url(base_url)
         if was_corrected:
             self._get_logger().warning(
@@ -129,7 +167,6 @@ class AnthropicProviderPlugin(MaiBotPlugin):
             raise ProviderRequestError("api_provider.timeout 必须是正数")
         headers = dict(provider.get("default_headers") or {})
         query = dict(provider.get("default_query") or {})
-        auth_type = str(provider.get("auth_type") or "bearer").strip().lower()
         if auth_type == "header":
             header_name = str(provider.get("auth_header_name") or "Authorization").strip()
             header_prefix = str(provider.get("auth_header_prefix") or "").strip()
@@ -149,6 +186,12 @@ class AnthropicProviderPlugin(MaiBotPlugin):
         cached = self._clients.get(signature)
         if cached is not None:
             return cached
+
+        if not _is_official_deepseek_provider({"base_url": base_url}):
+            self._get_logger().warning(
+                "Anthropic Provider 将按 Host 配置向非官方 endpoint 发送 API Key 和完整上下文；"
+                "请确认该地址由可信管理员配置"
+            )
 
         try:
             from anthropic import AsyncAnthropic
