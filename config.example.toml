@@ -1,0 +1,5 @@
+[plugin]
+config_version = "0.1.0"
+enabled = true
+allow_web_search = true
+log_search_sources = false
