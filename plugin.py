@@ -85,26 +85,30 @@ class AnthropicProviderPlugin(MaiBotPlugin):
     async def on_load(self) -> None:
         self._get_logger().info("Anthropic 兼容模型 Provider 已加载；API 密钥复用 MaiBot 模型配置")
 
-    async def on_unload(self) -> None:
-        for client in self._clients.values():
+    async def _close_clients(self) -> None:
+        clients = tuple(self._clients.values())
+        self._clients.clear()
+        for client in clients:
             close = getattr(client, "close", None)
             if not callable(close):
                 continue
             result = close()
             if inspect.isawaitable(result):
                 await result
-        self._clients.clear()
+
+    async def on_unload(self) -> None:
+        await self._close_clients()
 
     async def on_config_update(self, scope: str, config_data: dict[str, Any], version: str) -> None:
         self.set_plugin_config(config_data)
         if scope == "self":
-            await self.on_unload()
+            await self._close_clients()
 
     @LLMProvider(
         CLIENT_TYPE,
         name="Anthropic Messages Provider",
         description="调用 Anthropic Messages 兼容接口，并可启用 DeepSeek 原生联网搜索。",
-        version="0.1.3",
+        version="0.1.4",
     )
     async def handle_provider(self, *, operation: str, request: dict[str, Any]) -> dict[str, Any]:
         if operation != "response":

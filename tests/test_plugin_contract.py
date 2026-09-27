@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from types import ModuleType
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -32,6 +33,24 @@ class _FakeClient:
 class _FakeAnthropic:
     def __init__(self, **kwargs: Any) -> None:
         self.kwargs = kwargs
+
+
+@pytest.mark.asyncio
+async def test_config_update_cleans_clients_without_invoking_unload(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugin = AnthropicProviderPlugin()
+    close_clients = AsyncMock()
+    unload = AsyncMock()
+    monkeypatch.setattr(plugin, "_close_clients", close_clients)
+    monkeypatch.setattr(plugin, "on_unload", unload)
+
+    await plugin.on_config_update(
+        "self",
+        {"plugin": {"config_version": "0.1.0", "enabled": True}},
+        "0.1.0",
+    )
+
+    close_clients.assert_awaited_once()
+    unload.assert_not_awaited()
 
 
 @pytest.mark.asyncio
